@@ -11,8 +11,8 @@ describe('barretenberg wasm', () => {
   beforeAll(async () => {
     worker = await createMainWorker();
     wasm = getRemoteBarretenbergWasm<BarretenbergWasmMainWorker>(worker);
-    const { module, threads } = await fetchModuleAndThreads(2);
-    await wasm.init(module, threads);
+    const { module, threads, memory64 } = await fetchModuleAndThreads(2);
+    await wasm.init(module, threads, undefined, undefined, undefined, memory64);
   }, 20000);
 
   afterAll(async () => {
@@ -22,11 +22,12 @@ describe('barretenberg wasm', () => {
 
   it('should new malloc, transfer and slice mem', async () => {
     const length = 1024;
-    const ptr = await wasm.call('bbmalloc', length);
+    const ptr = await wasm.malloc(length);
+    const end = typeof ptr === 'bigint' ? ptr + BigInt(length) : ptr + length;
     const buf = Buffer.alloc(length, 128);
     await wasm.writeMemory(ptr, Uint8Array.from(buf));
-    const result = Buffer.from(await wasm.getMemorySlice(ptr, ptr + length));
-    await wasm.call('bbfree', ptr);
+    const result = Buffer.from(await wasm.getMemorySlice(ptr, end));
+    await wasm.free(ptr);
     expect(result).toStrictEqual(buf);
   });
 
@@ -36,11 +37,12 @@ describe('barretenberg wasm', () => {
 
   it('should new malloc, transfer and slice mem', async () => {
     const length = 1024;
-    const ptr = await wasm.call('bbmalloc', length);
+    const ptr = await wasm.malloc(length);
+    const end = typeof ptr === 'bigint' ? ptr + BigInt(length) : ptr + length;
     const buf = Buffer.alloc(length, 128);
     await wasm.writeMemory(ptr, Uint8Array.from(buf));
-    const result = Buffer.from(await wasm.getMemorySlice(ptr, ptr + length));
-    await wasm.call('bbfree', ptr);
+    const result = Buffer.from(await wasm.getMemorySlice(ptr, end));
+    await wasm.free(ptr);
     expect(result).toStrictEqual(buf);
   });
 });

@@ -3,7 +3,7 @@ import { Remote } from 'comlink';
 import { getNumCpu, getRemoteBarretenbergWasm, getSharedMemoryAvailable } from '../helpers/index.js';
 import { createThreadWorker } from '../barretenberg_wasm_thread/factory/node/index.js';
 import { type BarretenbergWasmThreadWorker } from '../barretenberg_wasm_thread/index.js';
-import { BarretenbergWasmBase } from '../barretenberg_wasm_base/index.js';
+import { BarretenbergWasmBase, type WasmPtr } from '../barretenberg_wasm_base/index.js';
 import { HeapAllocator } from './heap_allocator.js';
 
 /**
@@ -20,8 +20,8 @@ export class BarretenbergWasmMain extends BarretenbergWasmBase {
   private useCustomLogger = false;
 
   // Pre-allocated scratch buffers for msgpack I/O to avoid malloc/free overhead
-  private msgpackInputScratch: number = 0; // 8MB input buffer
-  private msgpackOutputScratch: number = 0; // 8MB output buffer
+  private msgpackInputScratch: WasmPtr = 0; // 8MB input buffer
+  private msgpackOutputScratch: WasmPtr = 0; // 8MB output buffer
   private readonly MSGPACK_SCRATCH_SIZE = 1024 * 1024 * 8; // 8MB
 
   public getNumThreads() {
@@ -36,23 +36,32 @@ export class BarretenbergWasmMain extends BarretenbergWasmBase {
     threads = Math.min(getNumCpu(), BarretenbergWasmMain.MAX_THREADS),
     logger?: (msg: string) => void,
     initial = 35,
-    maximum = this.getDefaultMaximumMemoryPages(),
+    maximum?: number,
+    memory64 = false,
   ) {
+    this.setMemory64(memory64);
     // Track whether a custom logger was provided so workers know whether to postMessage logs
     this.useCustomLogger = logger !== undefined;
     this.logger = logger ?? (() => {});
 
+    const maxPages = maximum ?? this.getDefaultMaximumMemoryPages();
     const initialMb = (initial * 2 ** 16) / (1024 * 1024);
-    const maxMb = (maximum * 2 ** 16) / (1024 * 1024);
+    const maxMb = (maxPages * 2 ** 16) / (1024 * 1024);
     const shared = getSharedMemoryAvailable();
 
     this.logger(
       `Initializing bb wasm: initial memory ${initial} pages ${initialMb}MiB; ` +
-        `max memory: ${maximum} pages, ${maxMb}MiB; ` +
-        `threads: ${threads}; shared memory: ${shared}`,
+        `max memory: ${maxPages} pages, ${maxMb}MiB; ` +
+        `threads: ${threads}; shared memory: ${shared}; memory64: ${this.memory64}`,
     );
 
-    this.memory = new WebAssembly.Memory({ initial, maximum, shared });
+    const memoryDescriptor = {
+      initial,
+      maximum: maxPages,
+      shared,
+      memory64: this.memory64,
+    } as WebAssembly.MemoryDescriptor & { memory64?: boolean };
+    this.memory = new WebAssembly.Memory(memoryDescriptor);
 
     const instance = await WebAssembly.instantiate(module, this.getImportObj(this.memory));
 
@@ -62,8 +71,8 @@ export class BarretenbergWasmMain extends BarretenbergWasmBase {
     this.call('_initialize');
 
     // Allocate dedicated msgpack scratch buffers (never freed, reused for all msgpack calls)
-    this.msgpackInputScratch = this.call('bbmalloc', this.MSGPACK_SCRATCH_SIZE);
-    this.msgpackOutputScratch = this.call('bbmalloc', this.MSGPACK_SCRATCH_SIZE);
+    this.msgpackInputScratch = this.malloc(this.MSGPACK_SCRATCH_SIZE);
+    this.msgpackOutputScratch = this.malloc(this.MSGPACK_SCRATCH_SIZE);
     this.logger(
       `Allocated msgpack scratch buffers: ` +
         `input @ ${this.msgpackInputScratch}, output @ ${this.msgpackOutputScratch} (${this.MSGPACK_SCRATCH_SIZE} bytes each)`,
@@ -80,7 +89,7 @@ export class BarretenbergWasmMain extends BarretenbergWasmBase {
       }
 
       this.remoteWasms = await Promise.all(this.workers.map(getRemoteBarretenbergWasm<BarretenbergWasmThreadWorker>));
-      await Promise.all(this.remoteWasms.map(w => w.initThread(module, this.memory, this.useCustomLogger)));
+      await Promise.all(this.remoteWasms.map(w => w.initThread(module, this.memory, this.useCustomLogger, this.memory64)));
     }
   }
 
@@ -89,6 +98,9 @@ export class BarretenbergWasmMain extends BarretenbergWasmBase {
     // We at any rate expect the mobile iOS browser to kill us >=1GB, so we don't set a maximum higher than that.
     if (typeof window !== 'undefined' && /iPad|iPhone/.test(navigator.userAgent)) {
       return 2 ** 14;
+    }
+    if (this.memory64) {
+      return 2 ** 18;
     }
     return 2 ** 16;
   }
@@ -132,12 +144,12 @@ export class BarretenbergWasmMain extends BarretenbergWasmBase {
     return {
       ...baseImports,
       wasi: {
-        'thread-spawn': (arg: number) => {
-          arg = arg >>> 0;
+        'thread-spawn': (arg: number | bigint) => {
+          const wasmArg = typeof arg === 'bigint' ? arg : arg >>> 0;
           const id = this.nextThreadId++;
           const worker = this.nextWorker++ % this.remoteWasms.length;
           // this.logger(`spawning thread ${id} on worker ${worker} with arg ${arg >>> 0}`);
-          this.remoteWasms[worker].call('wasi_thread_start', id, arg).catch(this.logger);
+          this.remoteWasms[worker].call('wasi_thread_start', id, wasmArg).catch(this.logger);
           // this.remoteWasms[worker].postMessage({ msg: 'thread', data: { id, arg } });
           return id;
         },
@@ -158,38 +170,41 @@ export class BarretenbergWasmMain extends BarretenbergWasmBase {
     const alloc = new HeapAllocator(this);
     const inPtrs = alloc.getInputs(inArgs);
     const outPtrs = alloc.getOutputPtrs(outLens);
-    this.call(funcName, ...inPtrs, ...outPtrs);
+    const wasmInArgs = inArgs.map((arg, i) =>
+      typeof arg === 'object' ? this.toWasmPtr(inPtrs[i] as WasmPtr) : arg,
+    );
+    const wasmOutPtrs = outPtrs.map(ptr => this.toWasmPtr(ptr));
+    this.call(funcName, ...wasmInArgs, ...wasmOutPtrs);
     const outArgs = this.getOutputArgs(outLens, outPtrs, alloc);
     alloc.freeAll();
     return outArgs;
   }
 
-  private getOutputArgs(outLens: (number | undefined)[], outPtrs: number[], alloc: HeapAllocator) {
+  private getOutputArgs(outLens: (number | undefined)[], outPtrs: WasmPtr[], alloc: HeapAllocator) {
     return outLens.map((len, i) => {
       if (len) {
-        return this.getMemorySlice(outPtrs[i], outPtrs[i] + len);
+        return this.getMemorySlice(outPtrs[i], this.addPtr(outPtrs[i], len));
       }
-      const slice = this.getMemorySlice(outPtrs[i], outPtrs[i] + 4);
-      const ptr = new DataView(slice.buffer, slice.byteOffset, slice.byteLength).getUint32(0, true);
+      const ptr = this.readPointerFromMemory(outPtrs[i], true);
 
       // Add our heap buffer to the dealloc list.
       alloc.addOutputPtr(ptr);
 
       // The length will be found in the first 4 bytes of the buffer, big endian. See to_heap_buffer.
-      const lslice = this.getMemorySlice(ptr, ptr + 4);
-      const length = new DataView(lslice.buffer, lslice.byteOffset, lslice.byteLength).getUint32(0, false);
+      const length = this.readUint32FromMemory(ptr, false);
 
-      return this.getMemorySlice(ptr + 4, ptr + 4 + length);
+      const dataStart = this.addPtr(ptr, 4);
+      return this.getMemorySlice(dataStart, this.addPtr(dataStart, length));
     });
   }
 
   cbindCall(cbind: string, inputBuffer: Uint8Array): any {
     const needsCustomInputBuffer = inputBuffer.length > this.MSGPACK_SCRATCH_SIZE;
-    let inputPtr: number;
+    let inputPtr: WasmPtr;
 
     if (needsCustomInputBuffer) {
       // Allocate temporary buffer for oversized input
-      inputPtr = this.call('bbmalloc', inputBuffer.length);
+      inputPtr = this.malloc(inputBuffer.length);
     } else {
       // Use pre-allocated scratch buffer
       inputPtr = this.msgpackInputScratch;
@@ -200,45 +215,45 @@ export class BarretenbergWasmMain extends BarretenbergWasmBase {
 
     // Setup output scratch buffer with IN-OUT parameter pattern:
     // Reserve 8 bytes for metadata (pointer + size), rest is scratch data space
-    const METADATA_SIZE = 8;
+    const pointerSize = this.getPointerSizeBytes();
+    const metadataSize = pointerSize * 2;
     const outputPtrLocation = this.msgpackOutputScratch;
-    const outputSizeLocation = this.msgpackOutputScratch + 4;
-    const scratchDataPtr = this.msgpackOutputScratch + METADATA_SIZE;
-    const scratchDataSize = this.MSGPACK_SCRATCH_SIZE - METADATA_SIZE;
-
-    // Get memory and create DataView for writing IN values
-    let mem = this.getMemory();
-    let view = new DataView(mem.buffer);
+    const outputSizeLocation = this.addPtr(this.msgpackOutputScratch, pointerSize);
+    const scratchDataPtr = this.addPtr(this.msgpackOutputScratch, metadataSize);
+    const scratchDataSize = this.MSGPACK_SCRATCH_SIZE - metadataSize;
 
     // Write IN values: provide scratch buffer pointer and size to C++
-    view.setUint32(outputPtrLocation, scratchDataPtr, true);
-    view.setUint32(outputSizeLocation, scratchDataSize, true);
+    this.writePointerToMemory(outputPtrLocation, scratchDataPtr, true);
+    this.writePointerToMemory(outputSizeLocation, scratchDataSize, true);
 
     // Call WASM
-    this.call(cbind, inputPtr, inputBuffer.length, outputPtrLocation, outputSizeLocation);
+    this.call(
+      cbind,
+      this.toWasmPtr(inputPtr),
+      this.toWasmSize(inputBuffer.length),
+      this.toWasmPtr(outputPtrLocation),
+      this.toWasmPtr(outputSizeLocation),
+    );
 
     // Free custom input buffer if allocated
     if (needsCustomInputBuffer) {
-      this.call('bbfree', inputPtr);
+      this.free(inputPtr);
     }
 
     // Re-fetch memory after WASM call, as the buffer may have been detached if memory grew
-    mem = this.getMemory();
-    view = new DataView(mem.buffer);
-
-    // Read OUT values: C++ returns actual buffer pointer and size
-    const outputDataPtr = view.getUint32(outputPtrLocation, true);
-    const outputSize = view.getUint32(outputSizeLocation, true);
+    const outputDataPtr = this.readPointerFromMemory(outputPtrLocation, true);
+    const outputSizePtr = this.readPointerFromMemory(outputSizeLocation, true);
+    const outputSize = this.toJsNumber(outputSizePtr, 'cbindCall:outputSize');
 
     // Check if C++ used scratch (pointer unchanged) or allocated (pointer changed)
     const usedScratch = outputDataPtr === scratchDataPtr;
 
     // Copy output data from WASM memory
-    const encodedResult = this.getMemorySlice(outputDataPtr, outputDataPtr + outputSize);
+    const encodedResult = this.getMemorySlice(outputDataPtr, this.addPtr(outputDataPtr, outputSize));
 
     // Only free if C++ allocated beyond scratch
     if (!usedScratch) {
-      this.call('bbfree', outputDataPtr);
+      this.free(outputDataPtr);
     }
 
     return encodedResult;

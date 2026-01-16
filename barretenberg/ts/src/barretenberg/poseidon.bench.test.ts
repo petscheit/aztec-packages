@@ -25,8 +25,8 @@ describe('poseidon2Hash benchmark (Async API): WASM vs Native', () => {
   beforeAll(async () => {
     // Setup direct WASM access for baseline benchmark (always required)
     wasm = new BarretenbergWasmMain();
-    const { module } = await fetchModuleAndThreads(1);
-    await wasm.init(module, 1);
+    const { module, memory64 } = await fetchModuleAndThreads(1);
+    await wasm.init(module, 1, undefined, undefined, undefined, memory64);
 
     // Setup WASM API
     try {
