@@ -19,8 +19,8 @@ export class BarretenbergWasmSyncBackend implements IMsgpackBackendSync {
    */
   static async new(wasmPath?: string, logger?: (msg: string) => void): Promise<BarretenbergWasmSyncBackend> {
     const wasm = new BarretenbergWasmMain();
-    const { module, threads } = await fetchModuleAndThreads(1, wasmPath, logger);
-    await wasm.init(module, threads, logger);
+    const { module, threads, memory64 } = await fetchModuleAndThreads(1, wasmPath, logger);
+    await wasm.init(module, threads, logger, undefined, undefined, memory64);
     return new BarretenbergWasmSyncBackend(wasm);
   }
 
@@ -61,6 +61,7 @@ export class BarretenbergWasmAsyncBackend implements IMsgpackBackendAsync {
       wasmPath?: string;
       logger?: (msg: string) => void;
       memory?: { initial?: number; maximum?: number };
+      memory64?: boolean;
       useWorker?: boolean;
     } = {},
   ): Promise<BarretenbergWasmAsyncBackend> {
@@ -71,20 +72,31 @@ export class BarretenbergWasmAsyncBackend implements IMsgpackBackendAsync {
       // Worker-based mode: runs on worker thread (browser-safe)
       const worker = await createMainWorker();
       const wasm = getRemoteBarretenbergWasm<BarretenbergWasmMainWorker>(worker);
-      const { module, threads } = await fetchModuleAndThreads(options.threads, options.wasmPath, options.logger);
+      const { module, threads, memory64 } = await fetchModuleAndThreads(
+        options.threads,
+        options.wasmPath,
+        options.logger,
+        { memory64: options.memory64 },
+      );
       await wasm.init(
         module,
         threads,
         proxy(options.logger ?? (() => {})),
         options.memory?.initial,
         options.memory?.maximum,
+        memory64,
       );
       return new BarretenbergWasmAsyncBackend(wasm, worker);
     } else {
       // Direct mode: runs on calling thread (faster but blocks thread)
       const wasm = new BarretenbergWasmMain();
-      const { module, threads } = await fetchModuleAndThreads(options.threads, options.wasmPath, options.logger);
-      await wasm.init(module, threads, options.logger, options.memory?.initial, options.memory?.maximum);
+      const { module, threads, memory64 } = await fetchModuleAndThreads(
+        options.threads,
+        options.wasmPath,
+        options.logger,
+        { memory64: options.memory64 },
+      );
+      await wasm.init(module, threads, options.logger, options.memory?.initial, options.memory?.maximum, memory64);
       return new BarretenbergWasmAsyncBackend(wasm);
     }
   }

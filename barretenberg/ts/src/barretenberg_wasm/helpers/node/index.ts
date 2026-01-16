@@ -60,3 +60,14 @@ export function getAvailableThreads(logger: (msg: string) => void): number {
     return 1;
   }
 }
+
+export function supportsMemory64(): boolean {
+  try {
+    const descriptor = { initial: 1, maximum: 1, memory64: true } as WebAssembly.MemoryDescriptor & {
+      memory64?: boolean;
+    };
+    return new WebAssembly.Memory(descriptor) instanceof WebAssembly.Memory;
+  } catch {
+    return false;
+  }
+}

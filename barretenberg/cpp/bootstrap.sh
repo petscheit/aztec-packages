@@ -126,12 +126,30 @@ function build_wasm {
   fi
 }
 
+# Build single threaded wasm64. Needed when no shared mem available.
+function build_wasm64 {
+  set -eu
+  if ! cache_download barretenberg-wasm64-$hash.zst; then
+    build_preset wasm64
+    cache_upload barretenberg-wasm64-$hash.zst build-wasm64/bin
+  fi
+}
+
 # Build multi-threaded wasm. Requires shared memory.
 function build_wasm_threads {
   set -eu
   if ! cache_download barretenberg-wasm-threads-$hash.zst; then
     build_preset wasm-threads
     cache_upload barretenberg-wasm-threads-$hash.zst build-wasm-threads/bin
+  fi
+}
+
+# Build multi-threaded wasm64. Requires shared memory.
+function build_wasm64_threads {
+  set -eu
+  if ! cache_download barretenberg-wasm64-threads-$hash.zst; then
+    build_preset wasm64-threads
+    cache_upload barretenberg-wasm64-threads-$hash.zst build-wasm64-threads/bin
   fi
 }
 
@@ -222,7 +240,7 @@ function build_release_dir {
   tar -czf build-release/barretenberg-amd64-darwin.tar.gz -C build-zig-amd64-macos/bin bb
 }
 
-export -f build_preset build_native_objects build_cross_objects build_native build_cross build_asan_fast build_wasm build_wasm_threads build_gcc_syntax_check_only build_fuzzing_syntax_check_only build_smt_verification inject_version
+export -f build_preset build_native_objects build_cross_objects build_native build_cross build_asan_fast build_wasm build_wasm64 build_wasm_threads build_wasm64_threads build_gcc_syntax_check_only build_fuzzing_syntax_check_only build_smt_verification inject_version
 
 function build {
   echo_header "bb cpp build"
@@ -250,6 +268,9 @@ function build {
       build_wasm
       build_wasm_threads
     )
+    if [ "${ENABLE_WASM64:-0}" -eq 1 ]; then
+      builds+=(build_wasm64 build_wasm64_threads)
+    fi
     if [ "$(arch)" == "amd64" ] && [ "$CI" -eq 1 ]; then
       builds+=(build_gcc_syntax_check_only build_fuzzing_syntax_check_only build_asan_fast)
     fi

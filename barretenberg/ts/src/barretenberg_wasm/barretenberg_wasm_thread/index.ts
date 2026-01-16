@@ -7,8 +7,14 @@ export class BarretenbergWasmThread extends BarretenbergWasmBase {
    * Init as worker thread.
    * @param useCustomLogger - If true, logs will be posted back to main thread for custom logger routing
    */
-  public async initThread(module: WebAssembly.Module, memory: WebAssembly.Memory, useCustomLogger = false) {
+  public async initThread(
+    module: WebAssembly.Module,
+    memory: WebAssembly.Memory,
+    useCustomLogger = false,
+    memory64 = false,
+  ) {
     this.logger = threadLogger(useCustomLogger) || this.logger;
+    this.setMemory64(memory64);
     this.memory = memory;
     this.instance = await WebAssembly.instantiate(module, this.getImportObj(this.memory));
   }

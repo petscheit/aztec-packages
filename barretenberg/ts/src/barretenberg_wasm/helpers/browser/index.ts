@@ -37,6 +37,17 @@ export function getAvailableThreads(logger: (msg: string) => void): number {
   }
 }
 
+export function supportsMemory64(): boolean {
+  try {
+    const descriptor = { initial: 1, maximum: 1, memory64: true } as WebAssembly.MemoryDescriptor & {
+      memory64?: boolean;
+    };
+    return new WebAssembly.Memory(descriptor) instanceof WebAssembly.Memory;
+  } catch {
+    return false;
+  }
+}
+
 // Solution to async initialization of workers, taken from
 // https://github.com/GoogleChromeLabs/comlink/issues/635#issuecomment-1598913044
 

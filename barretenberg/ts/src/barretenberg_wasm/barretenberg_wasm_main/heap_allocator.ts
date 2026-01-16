@@ -1,4 +1,5 @@
 import { type BarretenbergWasmMain } from './index.js';
+import { type WasmPtr } from '../barretenberg_wasm_base/index.js';
 
 /**
  * Keeps track of heap allocations so they can be easily freed.
@@ -9,7 +10,7 @@ import { type BarretenbergWasmMain } from './index.js';
  * This maximizes space utilization while preventing overlap.
  */
 export class HeapAllocator {
-  private allocs: number[] = [];
+  private allocs: WasmPtr[] = [];
   private inScratchPtr = 0; // Next input starts here, grows UP
   private outScratchPtr = 1024; // Next output ends here, grows DOWN
 
@@ -27,7 +28,7 @@ export class HeapAllocator {
           return ptr;
         } else {
           // Fall back to heap allocation
-          const ptr = this.wasm.call('bbmalloc', size);
+          const ptr = this.wasm.malloc(size);
           this.wasm.writeMemory(ptr, bufOrNum);
           this.allocs.push(ptr);
           return ptr;
@@ -41,8 +42,8 @@ export class HeapAllocator {
   getOutputPtrs(outLens: (number | undefined)[]) {
     return outLens.map(len => {
       // If the obj is variable length, we need a 4 byte ptr to write the serialized data address to.
-      // WARNING: 4 only works with WASM as it has 32 bit memory.
-      const size = len || 4;
+      // For Memory64, the pointer width is 8 bytes.
+      const size = len ?? this.wasm.getPointerSizeBytes();
 
       // Check if there's room in scratch space (inputs grow up, outputs grow down)
       if (this.inScratchPtr + size <= this.outScratchPtr) {
@@ -50,23 +51,27 @@ export class HeapAllocator {
         return this.outScratchPtr;
       } else {
         // Fall back to heap allocation
-        const ptr = this.wasm.call('bbmalloc', size);
+        const ptr = this.wasm.malloc(size);
         this.allocs.push(ptr);
         return ptr;
       }
     });
   }
 
-  addOutputPtr(ptr: number) {
+  addOutputPtr(ptr: WasmPtr) {
     // Only add to dealloc list if it's a heap allocation (not in scratch space 0-1023)
-    if (ptr >= 1024) {
+    if (!this.isScratchPtr(ptr)) {
       this.allocs.push(ptr);
     }
   }
 
   freeAll() {
     for (const ptr of this.allocs) {
-      this.wasm.call('bbfree', ptr);
+      this.wasm.free(ptr);
     }
+  }
+
+  private isScratchPtr(ptr: WasmPtr) {
+    return typeof ptr === 'bigint' ? ptr < 1024n : ptr < 1024;
   }
 }
