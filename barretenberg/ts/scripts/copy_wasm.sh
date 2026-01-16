@@ -22,3 +22,13 @@ cp ../cpp/build-wasm-threads/bin/barretenberg.wasm.gz ./dest/node/barretenberg_w
 cp ../cpp/build-wasm-threads/bin/barretenberg.wasm.gz ./dest/node-cjs/barretenberg_wasm/barretenberg-threads.wasm.gz
 cp ../cpp/build-wasm-threads/bin/barretenberg.wasm.gz ./dest/browser/barretenberg_wasm/barretenberg-threads.wasm.gz
 cp ../cpp/build-wasm/bin/barretenberg.wasm.gz ./dest/browser/barretenberg_wasm/barretenberg.wasm.gz
+
+if [ -f ../cpp/build-wasm64-threads/bin/barretenberg.wasm.gz ]; then
+  cp ../cpp/build-wasm64-threads/bin/barretenberg.wasm.gz ./dest/node/barretenberg_wasm/barretenberg-threads-memory64.wasm.gz
+  cp ../cpp/build-wasm64-threads/bin/barretenberg.wasm.gz ./dest/node-cjs/barretenberg_wasm/barretenberg-threads-memory64.wasm.gz
+  cp ../cpp/build-wasm64-threads/bin/barretenberg.wasm.gz ./dest/browser/barretenberg_wasm/barretenberg-threads-memory64.wasm.gz
+fi
+
+if [ -f ../cpp/build-wasm64/bin/barretenberg.wasm.gz ]; then
+  cp ../cpp/build-wasm64/bin/barretenberg.wasm.gz ./dest/browser/barretenberg_wasm/barretenberg-memory64.wasm.gz
+fi

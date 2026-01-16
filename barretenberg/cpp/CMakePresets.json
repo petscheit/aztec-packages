@@ -417,6 +417,49 @@
       }
     },
     {
+      "name": "wasm64",
+      "displayName": "Build for WASM64",
+      "description": "Build with wasi-sdk to create wasm64",
+      "binaryDir": "build-wasm64",
+      "generator": "Ninja",
+      "toolchainFile": "cmake/toolchains/wasm64-wasi.cmake",
+      "environment": {
+        "WASI_SDK_PREFIX": "/opt/wasi-sdk",
+        "CC": "$env{WASI_SDK_PREFIX}/bin/clang",
+        "CXX": "$env{WASI_SDK_PREFIX}/bin/clang++",
+        "CXXFLAGS": "-DBB_VERBOSE",
+        "AR": "$env{WASI_SDK_PREFIX}/bin/llvm-ar",
+        "RANLIB": "$env{WASI_SDK_PREFIX}/bin/llvm-ranlib"
+      },
+      "cacheVariables": {
+        "CMAKE_SYSROOT": "$env{WASI_SDK_PREFIX}/share/wasi-sysroot",
+        "CMAKE_FIND_ROOT_PATH_MODE_PROGRAM": "NEVER",
+        "CMAKE_FIND_ROOT_PATH_MODE_LIBRARY": "ONLY",
+        "CMAKE_FIND_ROOT_PATH_MODE_INCLUDE": "ONLY",
+        "CMAKE_FIND_ROOT_PATH_MODE_PACKAGE": "ONLY",
+        "CMAKE_C_COMPILER_WORKS": "ON",
+        "CMAKE_CXX_COMPILER_WORKS": "ON",
+        "CMAKE_C_COMPILER_TARGET": "wasm64-wasi",
+        "CMAKE_CXX_COMPILER_TARGET": "wasm64-wasi",
+        "MULTITHREADING": "OFF",
+        "CMAKE_C_FLAGS": "-mwasm64 -mwasm-memory64",
+        "CMAKE_CXX_FLAGS": "-DBB_NO_EXCEPTIONS -mwasm64 -mwasm-memory64",
+        "CMAKE_EXE_LINKER_FLAGS": "-mwasm64 -mwasm-memory64"
+      }
+    },
+    {
+      "name": "wasm64-threads",
+      "displayName": "Build for pthread enabled WASM64",
+      "description": "Build for pthread enabled WASM64",
+      "inherits": "wasm64",
+      "binaryDir": "build-wasm64-threads",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MULTITHREADING": "ON",
+        "ENABLE_WASM_BENCH": "ON"
+      }
+    },
+    {
       "name": "wasm-threads-dbg",
       "displayName": "Build for debug WASM",
       "binaryDir": "build-wasm-threads-dbg",
@@ -652,6 +695,13 @@
       "targets": ["barretenberg.wasm.gz"]
     },
     {
+      "name": "wasm64",
+      "configurePreset": "wasm64",
+      "inheritConfigureEnvironment": true,
+      "jobs": 0,
+      "targets": ["barretenberg.wasm.gz"]
+    },
+    {
       "name": "wasm-threads-dbg",
       "configurePreset": "wasm-threads-dbg",
       "inheritConfigureEnvironment": true,
@@ -661,6 +711,13 @@
     {
       "name": "wasm-threads",
       "configurePreset": "wasm-threads",
+      "inheritConfigureEnvironment": true,
+      "jobs": 0,
+      "targets": ["barretenberg.wasm.gz", "ecc_tests"]
+    },
+    {
+      "name": "wasm64-threads",
+      "configurePreset": "wasm64-threads",
       "inheritConfigureEnvironment": true,
       "jobs": 0,
       "targets": ["barretenberg.wasm.gz", "ecc_tests"]

@@ -94,7 +94,7 @@ if(FUZZING)
     endif()
 endif()
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "wasm32")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "wasm32|wasm64")
     message(STATUS "Compiling for WebAssembly.")
     set(WASM ON)
     set(DISABLE_ASM ON)

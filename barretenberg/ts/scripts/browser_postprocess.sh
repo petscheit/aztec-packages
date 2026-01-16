@@ -11,8 +11,11 @@ done
 find "$DIR" -type f -name "*.js" -exec sed -i 's/\(import\|export\)\(.*\)from\(.*\)\/node\//\1\2from\3\/browser\//g' {} +
 
 # Provide default wasm files as gziped base64 strings
-for file in barretenberg barretenberg-threads; do
+for file in barretenberg barretenberg-threads barretenberg-memory64 barretenberg-threads-memory64; do
     GZIP_FILE=${DIR}/barretenberg_wasm/$file.wasm.gz
+    if [ ! -f "$GZIP_FILE" ]; then
+        continue
+    fi
     BB_BASE64=$(cat ${GZIP_FILE} | base64 -w0)
     printf "const barretenberg = \"data:application/gzip;base64,$BB_BASE64\"; \\nexport default barretenberg;" > $DIR/barretenberg_wasm/fetch_code/browser/$file.js
     rm $GZIP_FILE
